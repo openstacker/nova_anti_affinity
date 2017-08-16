@@ -47,7 +47,8 @@ REGIONS = ['nz-hlz-1', 'nz-por-1', 'nz_wlg_2']
 
 SERVER_GROUP_LIST = []
 
-INSTANCE = namedtuple('instance', ['region_name', 'instance_id', 'instance_name', 'networks'])
+INSTANCE = namedtuple('instance', ['region_name', 'instance_id'
+                                   'instance_name', 'networks'])
 
 
 def prepare_log():
@@ -284,7 +285,8 @@ def do_create(shell, args):
     """
     import pdb
     pdb.set_trace()
-    LOG.info("Start to create %d servers across all regions..." % args.SERVERS_NUMBER);
+    LOG.info("Start to create %d servers across all regions..." %
+             args.SERVERS_NUMBER);
     servers = []
     for i in range(args.SERVERS_NUMBER):
         for region in REGIONS:
@@ -312,12 +314,15 @@ def do_create(shell, args):
                 if resp["active"]:
                     # If the server is created successfully, then try to
                     # create another one
-                    LOG.info("Create server %s successfully on regions %s" % (server.name, region))
+                    LOG.info("Create server %s successfully on regions %s" %
+                             (server.name, region))
                     # Get the latest status of server
                     server = shell.nova.servers.get(server.id)
                     import pdb
                     pdb.set_trace()
-                    inst = INSTANCE(region_name=region, instance_id=server.id, instance_name=server.name,
+                    inst = INSTANCE(region_name=region,
+                                    instance_id=server.id,
+                                    instance_name=server.name,
                                     networks=server.networks)
                     servers.append(inst)
                     break
@@ -328,18 +333,21 @@ def do_create(shell, args):
                     shell.nova.servers.delete(server.id)
                     continue
                 else:
-                    import pdb
-                    pdb.set_trace()
-                    LOG.info("Unknown error of server %s" % server.id)
+                    LOG.info("Failed to create server %s due to %s" %
+                             (server.id, resp["fault"])
             except Exception as e:
                 LOG.error(e)
 
-    print_list(servers, ["region_name", "instance_id", "instance_name", "networks"])
+    print_list(servers, ["region_name", "instance_id",
+                         "instance_name", "networks"])
 
 
 def _find_server_group(shell, region_name, args):
     # If there is no server group or all are full
-    if (len(SERVER_GROUP_LIST) == 0 or (len(SERVER_GROUP_LIST)> 0 and all([region["is_full"] for region in SERVER_GROUP_LIST[-1].values()]))):
+    all_full = (len(SERVER_GROUP_LIST)> 0 and
+                all([region["is_full"]
+                     for region in SERVER_GROUP_LIST[-1].values()]))
+    if (len(SERVER_GROUP_LIST) == 0 or all_full):
         # Would like to have same server group name for all regions
         group_name = "AF-" + str(uuid.uuid4())
         region_groups = {}
@@ -356,7 +364,8 @@ def _find_server_group(shell, region_name, args):
                 except:
                     pass
             
-            group = shell.nova.server_groups.create(group_name, 'anti-affinity')
+            group = shell.nova.server_groups.create(group_name,
+                                                    'anti-affinity')
             region_groups[region] = {"group": group, "is_full": False}
         
         LOG.info("Created new server groups %s" % str(region_groups))
@@ -409,10 +418,11 @@ def _create_server(shell, name, keypair_name, group_id,
 
     if assign_public_ip:
         floating_ip = shell.neutron.create_floatingip(
-                    {"floatingip": {"floating_network_id": shell.public_network_id}})
-        time.sleep(3)
+                    {"floatingip": {"floating_network_id":
+                                    shell.public_network_id}})
+        time.sleep(10)
         server.add_floating_ip(floating_ip["floatingip"]["floating_ip_address"])
-        time.sleep(15)
+        time.sleep(10)
 
     return server
 
