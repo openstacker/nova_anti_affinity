@@ -6,6 +6,12 @@
 
 echo "userdata running on hostname: $(uname -n)"
 echo "Using pip to install Ansible"
+
+apt-get install software-properties-common
+apt-add-repository universe
+apt-get update
+apt-get install python-pip
+
 pip2 install --upgrade ansible 2>&1
 
 echo "Cloning repo with example code"

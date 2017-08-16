@@ -47,6 +47,8 @@ REGIONS = ['nz-hlz-1', 'nz-por-1', 'nz_wlg_2']
 
 SERVER_GROUP_LIST = []
 
+INSTANCE = namedtuple('instance', ['region_name', 'instance_id', 'instance_name', 'networks'])
+
 
 def prepare_log():
     logging.register_options(CONF)
@@ -71,17 +73,25 @@ def arg(*args, **kwargs):
 
 class CatalystCloudShell(object):
 
+    # Your private network id
     NZ_POR_1_NETWORK_ID = '715662b0-dc96-4bbd-9c7f-1a3332a86b27'
     NZ_WLG_2_NETWORK_ID = '77b5a8f2-59d3-4291-9ad0-a0a9d17bcb66'
     NZ_HLZ_1_NETWORK_ID = '2bef9c59-934f-45f1-904d-6ba9afb65a27'
 
+    # c1.c1r1
     NZ_POR_1_FLAVOR_ID = '28153197-6690-4485-9dbc-fc24489b0683'
     NZ_WLG_2_FLAVOR_ID = '6371ec4a-47d1-4159-a42f-83b84b80eea7'
     NZ_HLZ_1_FLAVOR_ID = '99fb31cc-fdad-4636-b12b-b1e23e84fb25'
 
+    # ubuntu 16.04
     NZ_POR_1_IMAGE_ID = '5017b18e-e7f6-47b0-b1a2-c60ddf9d0033'
     NZ_WLG_2_IMAGE_ID = 'd105d837-67b7-4db6-8aeb-41d92ecb31e1'
     NZ_HLZ_1_IMAGE_ID = '4bc88816-d240-47d7-ae7d-f7325bca396e'
+
+    # public network id
+    NZ_HLZ_1_PUBLIC_NETWORK_ID = 'f10ad6de-a26d-4c29-8c64-2a7418d47f8f'
+    NZ_POR_1_PUBLIC_NETWORK_ID = '849ab1e9-7ac5-4618-8801-e6176fbbcf30'
+    NZ_WLG_2_PUBLIC_NETWORK_ID = 'e0ba6b88-5360-492c-9c3d-119948356fd3'
 
     def get_base_parser(self):
             parser = argparse.ArgumentParser(
@@ -191,6 +201,9 @@ class CatalystCloudShell(object):
             self.parser.print_help()
 
     def init_client(self, args):
+        if not args.OS_AUTH_URL:
+            LOG.critical("Please specify auth information")
+            sys.exit(1)
         try:
             from keystoneauth1.identity import generic
             from keystoneauth1 import session
@@ -213,6 +226,10 @@ class CatalystCloudShell(object):
             nova = nova_client.Client('2', session=sess,
                                       region_name=args.OS_REGION_NAME)
             self.nova = nova
+            
+            neutron = neutron_client.Client(session=sess,
+                                            region_name=args.OS_REGION_NAME)
+            self.neutron = neutron
         except Exception as e:
             raise e
 
@@ -272,19 +289,17 @@ def do_create(shell, args):
     for i in range(args.SERVERS_NUMBER):
         for region in REGIONS:
             group = _find_server_group(shell, region, args)
-            import pdb
-            pdb.set_trace()
             if group["is_full"]:
                 continue  
 
             args.OS_REGION_NAME = region
             shell.init_client(args)
-
             capital_region = args.OS_REGION_NAME.replace('-', '_').upper()
             shell.flavor_id = getattr(shell,  capital_region + '_FLAVOR_ID')
             shell.network_id = getattr(shell, capital_region + '_NETWORK_ID')
             shell.image_id = getattr(shell, capital_region + '_IMAGE_ID')
-    
+            shell.public_network_id = getattr(shell, capital_region + '_PUBLIC_NETWORK_ID')
+            
             try:
                 server = _create_server(shell,
                                         args.NAME_PREFIX + str(uuid.uuid4()),
@@ -294,19 +309,21 @@ def do_create(shell, args):
                                         assign_public_ip=args.ASSIGN_PUBLIC_IP)
 
                 resp = _check_server_status(shell, server)
-                import pdb
-                pdb.set_trace()
                 if resp["active"]:
                     # If the server is created successfully, then try to
                     # create another one
                     LOG.info("Create server %s successfully on regions %s" % (server.name, region))
-                    servers.append(server)
+                    # Get the latest status of server
+                    server = shell.nova.servers.get(server.id)
+                    import pdb
+                    pdb.set_trace()
+                    inst = INSTANCE(region_name=region, instance_id=server.id, instance_name=server.name,
+                                    networks=server.networks)
+                    servers.append(inst)
                     break
                 elif "No valid host" in resp["fault"]["message"]:
                     # If the server is failed then try to create it in
                     # another region
-                    import pdb
-                    pdb.set_trace()
                     SERVER_GROUP_LIST[-1][region]["is_full"] = True
                     shell.nova.servers.delete(server.id)
                     continue
@@ -317,7 +334,7 @@ def do_create(shell, args):
             except Exception as e:
                 LOG.error(e)
 
-
+    print_list(servers, ["region_name", "instance_id", "instance_name", "networks"])
 
 
 def _find_server_group(shell, region_name, args):
@@ -372,13 +389,11 @@ def _create_server(shell, name, keypair_name, group_id,
          'uuid': shell.image_id,
          'volume_size': '20',
     }
-    import pdb
-    pdb.set_trace()
 
     create_kwargs = {}
 
     if path_cloud_init_script:
-        boot_kwargs["user_data"] = path_cloud_init_script
+        create_kwargs["userdata"] = open(path_cloud_init_script)
   
     try:
         server = shell.nova.servers.create(name,
@@ -393,12 +408,12 @@ def _create_server(shell, name, keypair_name, group_id,
         raise e
 
     if assign_public_ip:
-        floating_ip = shell.nova.floating_ips.create()
-        sleep(10)
-        server.add_floating_ip(floating_ip)
+        floating_ip = shell.neutron.create_floatingip(
+                    {"floatingip": {"floating_network_id": shell.public_network_id}})
+        time.sleep(3)
+        server.add_floating_ip(floating_ip["floatingip"]["floating_ip_address"])
+        time.sleep(15)
 
-    import pdb
-    pdb.set_trace()
     return server
 
 
