@@ -32,6 +32,7 @@ from collections import namedtuple
 from oslo_utils import importutils
 from oslo_log import log as logging
 from oslo_config import cfg
+from oslo_utils import encodeutils
 
 from keystoneclient.v2_0 import client as keystone_client
 from novaclient import client as nova_client
