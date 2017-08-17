@@ -74,21 +74,6 @@ def arg(*args, **kwargs):
 
 class CatalystCloudShell(object):
 
-    # Your private network id
-    NZ_POR_1_NETWORK_ID = '715662b0-dc96-4bbd-9c7f-1a3332a86b27'
-    NZ_WLG_2_NETWORK_ID = '77b5a8f2-59d3-4291-9ad0-a0a9d17bcb66'
-    NZ_HLZ_1_NETWORK_ID = '2bef9c59-934f-45f1-904d-6ba9afb65a27'
-
-    # c1.c1r1
-    NZ_POR_1_FLAVOR_ID = '28153197-6690-4485-9dbc-fc24489b0683'
-    NZ_WLG_2_FLAVOR_ID = '6371ec4a-47d1-4159-a42f-83b84b80eea7'
-    NZ_HLZ_1_FLAVOR_ID = '99fb31cc-fdad-4636-b12b-b1e23e84fb25'
-
-    # ubuntu 16.04
-    NZ_POR_1_IMAGE_ID = '5017b18e-e7f6-47b0-b1a2-c60ddf9d0033'
-    NZ_WLG_2_IMAGE_ID = 'd105d837-67b7-4db6-8aeb-41d92ecb31e1'
-    NZ_HLZ_1_IMAGE_ID = '4bc88816-d240-47d7-ae7d-f7325bca396e'
-
     # public network id
     NZ_HLZ_1_PUBLIC_NETWORK_ID = 'f10ad6de-a26d-4c29-8c64-2a7418d47f8f'
     NZ_POR_1_PUBLIC_NETWORK_ID = '849ab1e9-7ac5-4618-8801-e6176fbbcf30'
@@ -213,8 +198,6 @@ class CatalystCloudShell(object):
                                     username=args.OS_USERNAME,
                                     password=args.OS_PASSWORD,
                                     project_name=args.OS_TENANT_NAME,
-                                    user_domain_name="default",
-                                    project_domain_name="default",
                                     )
             sess = session.Session(auth=auth)
 
@@ -268,8 +251,8 @@ class HelpFormatter(argparse.HelpFormatter):
         super(HelpFormatter, self).start_section(heading)
 
 
-@arg('--servers-count', type=int, metavar='SERVERS_COUNT',
-     dest='SERVERS_COUNT', default=5,
+@arg('--instances-count', type=int, metavar='INSTANCES_COUNT',
+     dest='INSTANCES_COUNT', default=5,
      help='How many servers will be created')
 @arg('--assign-public-ip',
      dest='ASSIGN_PUBLIC_IP', action="store_true", default=False,
@@ -296,9 +279,9 @@ def do_create(shell, args):
     """ Boot servers with anti-affinity policy
     """
     LOG.info("Start to create %d servers across all regions..." %
-             args.SERVERS_COUNT);
+             args.INSTANCES_COUNT);
     servers = []
-    for i in range(args.SERVERS_COUNT):
+    for i in range(args.INSTANCES_COUNT):
         for region in REGIONS:
             group = _find_server_group(shell, region, args)
             if group["is_full"]:
