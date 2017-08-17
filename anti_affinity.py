@@ -32,6 +32,7 @@ from oslo_log import log as logging
 from oslo_config import cfg
 from oslo_utils import encodeutils
 
+from glanceclient import client as glance_client
 from keystoneclient.v2_0 import client as keystone_client
 from novaclient import client as nova_client
 from neutronclient.v2_0 import client as neutron_client
@@ -230,6 +231,9 @@ class CatalystCloudShell(object):
             neutron = neutron_client.Client(session=sess,
                                             region_name=args.OS_REGION_NAME)
             self.neutron = neutron
+            glance = glance_client.Client('1', session=sess,
+                                          region_name=args.OS_REGION_NAME)
+            self.glance = glance
         except Exception as e:
             raise e
 
@@ -264,11 +268,11 @@ class HelpFormatter(argparse.HelpFormatter):
         super(HelpFormatter, self).start_section(heading)
 
 
-@arg('--servers-number', type=int, metavar='SERVERS_NUMBER',
-     dest='SERVERS_NUMBER', default=5,
+@arg('--servers-count', type=int, metavar='SERVERS_COUNT',
+     dest='SERVERS_COUNT', default=5,
      help='How many servers will be created')
-@arg('--assign-public-ip', type=bool, metavar='ASSIGN_PUBLIC_IP',
-     dest='ASSIGN_PUBLIC_IP', default=False,
+@arg('--assign-public-ip',
+     dest='ASSIGN_PUBLIC_IP', action="store_true", default=False,
      help='If assign public ip for servers')
 @arg('--path-cloud-init-script', type=str, metavar='PATH_CLOUD_INIT_SCRIPT',
      dest='PATH_CLOUD_INIT_SCRIPT',
@@ -276,6 +280,15 @@ class HelpFormatter(argparse.HelpFormatter):
 @arg('--name-prefix', type=str, metavar='NAME_PREFIX',
      dest='NAME_PREFIX', default="server-",
           help='The name prefix for servers')
+@arg('--image-name', type=str, metavar='IMAGE_NAME',
+     dest='IMAGE_NAME', default="ubuntu-16.04-x86_64",
+          help='Image name use to boot servers.')
+@arg('--flavor-name', type=str, metavar='FLAVOR_NAME',
+     dest='FLAVOR_NAME', default="c1.c1r1",
+          help='Flavor name use to boot servers.')
+@arg('--network-name', type=str, metavar='NETWORK_NAME',
+     dest='NETWORK_NAME', default="private-net",
+          help='Network name use to boot servers.')
 @arg('--keypair-name', type=str, metavar='KEYPAIR_NAME',
      dest='KEYPAIR_NAME',required=True,
      help='The name of keypair to be injected into server')
@@ -283,9 +296,9 @@ def do_create(shell, args):
     """ Boot servers with anti-affinity policy
     """
     LOG.info("Start to create %d servers across all regions..." %
-             args.SERVERS_NUMBER);
+             args.SERVERS_COUNT);
     servers = []
-    for i in range(args.SERVERS_NUMBER):
+    for i in range(args.SERVERS_COUNT):
         for region in REGIONS:
             group = _find_server_group(shell, region, args)
             if group["is_full"]:
@@ -294,14 +307,17 @@ def do_create(shell, args):
             args.OS_REGION_NAME = region
             shell.init_client(args)
             capital_region = args.OS_REGION_NAME.replace('-', '_').upper()
-            shell.flavor_id = getattr(shell,  capital_region + '_FLAVOR_ID')
-            shell.network_id = getattr(shell, capital_region + '_NETWORK_ID')
-            shell.image_id = getattr(shell, capital_region + '_IMAGE_ID')
+            #shell.flavor_id = getattr(shell,  capital_region + '_FLAVOR_ID')
+            #shell.network_id = getattr(shell, capital_region + '_NETWORK_ID')
+            #shell.image_id = getattr(shell, capital_region + '_IMAGE_ID')
             shell.public_network_id = getattr(shell, capital_region + '_PUBLIC_NETWORK_ID')
             
             try:
                 server = _create_server(shell,
                                         args.NAME_PREFIX + str(uuid.uuid4()),
+                                        args.IMAGE_NAME,
+                                        args.FLAVOR_NAME,
+                                        args.NETWORK_NAME,
                                         args.KEYPAIR_NAME,
                                         group["group"].id,
                                         path_cloud_init_script=args.PATH_CLOUD_INIT_SCRIPT)
@@ -391,24 +407,50 @@ def _check_server_status(shell, server):
         return {"active": False, "fault": getattr(server, "fault", "")}
 
 
-def _create_server(shell, name, keypair_name, group_id,
+def _create_server(shell, name,
+                   image_name,
+                   flavor_name,
+                   network_name,
+                   keypair_name, group_id,
                    path_cloud_init_script=None,
                    assign_public_ip=False):
-    dev_mapping_2 = {
-         'device_name': None,
-         'source_type': 'image',
-         'destination_type': 'volume',
-         'delete_on_termination': 'true',
-         'uuid': shell.image_id,
-         'volume_size': '20',
-    }
-
+    
     create_kwargs = {}
 
     if path_cloud_init_script:
         create_kwargs["userdata"] = open(path_cloud_init_script)
   
     try:
+        flavors = shell.nova.flavors.list()
+        for f in flavors:
+            if f.name == flavor_name:
+                shell.flavor_id = f.id
+                break
+        else:
+            raise Exception("Can't find flavor %s " % flavor_name)
+        images =  shell.glance.images.list()
+        for i in images:
+            if i.name == image_name:
+                shell.image_id = i.id
+                break
+        else:
+            raise Exception("Can't find image %s " % image_name)
+        networks = shell.neutron.list_networks()
+        for n in networks["networks"]:
+            if n["name"] == network_name:
+                shell.network_id = n["id"]
+                break
+        else:
+            raise Exception("Can't find network %s " % network_name)
+
+        dev_mapping_2 = {
+             'device_name': None,
+             'source_type': 'image',
+             'destination_type': 'volume',
+             'delete_on_termination': 'true',
+             'uuid': shell.image_id,
+             'volume_size': '20',
+        }
         server = shell.nova.servers.create(name,
                                            shell.image_id,
                                            shell.flavor_id,
