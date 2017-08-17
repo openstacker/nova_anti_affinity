@@ -15,10 +15,8 @@
 #    under the License.
 
 import argparse
-import bz2
 import datetime
 import os
-import pdb
 import re
 import subprocess
 import sys
