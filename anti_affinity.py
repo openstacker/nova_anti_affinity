@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2014 Catalyst IT Ltd
+# Copyright 2017 Catalyst IT Ltd
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -210,7 +210,7 @@ class CatalystCloudShell(object):
             nova = nova_client.Client('2', session=sess,
                                       region_name=args.OS_REGION_NAME)
             self.nova = nova
-            
+
             neutron = neutron_client.Client(session=sess,
                                             region_name=args.OS_REGION_NAME)
             self.neutron = neutron
@@ -251,8 +251,8 @@ class HelpFormatter(argparse.HelpFormatter):
         super(HelpFormatter, self).start_section(heading)
 
 
-@arg('--instances-count', type=int, metavar='INSTANCES_COUNT',
-     dest='INSTANCES_COUNT', default=5,
+@arg('--instance-count', type=int, metavar='INSTANCE_COUNT',
+     dest='INSTANCE_COUNT', default=5,
      help='How many instances will be created')
 @arg('--assign-public-ip',
      dest='ASSIGN_PUBLIC_IP', action="store_true", default=False,
@@ -272,20 +272,23 @@ class HelpFormatter(argparse.HelpFormatter):
 @arg('--network-name', type=str, metavar='NETWORK_NAME',
      dest='NETWORK_NAME', default="private-net",
           help='Network name use to boot instances.')
+@arg('--volume-size', type=int, metavar='VOLUME_SIZE',
+     dest='VOLUME_SIZE', default=20,
+          help='The size of the root volume of the instance.')
 @arg('--keypair-name', type=str, metavar='KEYPAIR_NAME',
      dest='KEYPAIR_NAME',required=True,
      help='The name of keypair to be injected into instance')
 def do_create(shell, args):
     """ Boot instances with anti-affinity policy
     """
-    LOG.info("Start to create %d instances across all regions" %
-             args.INSTANCES_COUNT);
+    LOG.info("Launching %d instances across all regions" %
+             args.INSTANCE_COUNT);
     instances = []
-    for i in range(args.INSTANCES_COUNT):
+    for i in range(args.INSTANCE_COUNT):
         for region in REGIONS:
             group = _find_server_group(shell, region, args)
             if group["is_full"]:
-                continue  
+                continue
 
             args.OS_REGION_NAME = region
             shell.init_client(args)
@@ -294,7 +297,7 @@ def do_create(shell, args):
             #shell.network_id = getattr(shell, capital_region + '_NETWORK_ID')
             #shell.image_id = getattr(shell, capital_region + '_IMAGE_ID')
             shell.public_network_id = getattr(shell, capital_region + '_PUBLIC_NETWORK_ID')
-            
+
             try:
                 server = _create_server(shell,
                                         args.NAME_PREFIX + str(i),
@@ -302,6 +305,7 @@ def do_create(shell, args):
                                         args.FLAVOR_NAME,
                                         args.NETWORK_NAME,
                                         args.KEYPAIR_NAME,
+                                        args.VOLUME_SIZE,
                                         group["group"].id,
                                         path_cloud_init_script=args.PATH_CLOUD_INIT_SCRIPT)
 
@@ -309,7 +313,7 @@ def do_create(shell, args):
                 if resp["active"]:
                     # If the server is created successfully, then try to
                     # create another one
-                    LOG.info("Create %s successfully on regions %s" %
+                    LOG.info("Created %s successfully in %s" %
                              (server.name, region))
                     # Assign floating ip if it's active
                     if args.ASSIGN_PUBLIC_IP:
@@ -343,7 +347,7 @@ def do_create(shell, args):
 
     LOG.info("Job finished. Instances have been created as below:")
     print_list(instances, ["region_name", "instance_id",
-                         "instance_name", "networks"])
+                           "instance_name", "networks"])
 
 
 def _find_server_group(shell, region_name, args):
@@ -358,7 +362,7 @@ def _find_server_group(shell, region_name, args):
         for region in REGIONS:
             args.OS_REGION_NAME = region
             shell.init_client(args)
-            
+
             # Clean old unused server groups
             old_groups = shell.nova.server_groups.list()
             for g in old_groups:
@@ -367,12 +371,12 @@ def _find_server_group(shell, region_name, args):
                         shell.nova.server_groups.delete(g.id)
                 except:
                     pass
-            
+
             group = shell.nova.server_groups.create(group_name,
                                                     'anti-affinity')
             region_groups[region] = {"group": group, "is_full": False}
-        
-        LOG.info("Created new server groups %s for all regions" % group_name)
+
+        LOG.info("Created anti-affinity group %s in all regions" % group_name)
         SERVER_GROUP_LIST.append(region_groups)
 
     return SERVER_GROUP_LIST[-1][region_name]
@@ -395,15 +399,17 @@ def _create_server(shell, name,
                    image_name,
                    flavor_name,
                    network_name,
-                   keypair_name, group_id,
+                   keypair_name,
+                   volume_size,
+                   group_id,
                    path_cloud_init_script=None,
                    assign_public_ip=False):
-    
+
     create_kwargs = {}
 
     if path_cloud_init_script:
         create_kwargs["userdata"] = open(path_cloud_init_script)
-  
+
     try:
         flavors = shell.nova.flavors.list()
         for f in flavors:
@@ -433,8 +439,9 @@ def _create_server(shell, name,
              'destination_type': 'volume',
              'delete_on_termination': 'true',
              'uuid': shell.image_id,
-             'volume_size': '20',
+             'volume_size': str(volume_size),
         }
+
         server = shell.nova.servers.create(name,
                                            shell.image_id,
                                            shell.flavor_id,
