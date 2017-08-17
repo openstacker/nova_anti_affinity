@@ -82,7 +82,7 @@ class CatalystCloudShell(object):
     def get_base_parser(self):
             parser = argparse.ArgumentParser(
                 prog='anti_affinity',
-                description='Script for Catalyst Cloud to create many servers'
+                description='Script for Catalyst Cloud to create many instances'
                             ' with anti-affinity cross all regions.',
                 add_help=False,
             )
@@ -253,34 +253,34 @@ class HelpFormatter(argparse.HelpFormatter):
 
 @arg('--instances-count', type=int, metavar='INSTANCES_COUNT',
      dest='INSTANCES_COUNT', default=5,
-     help='How many servers will be created')
+     help='How many instances will be created')
 @arg('--assign-public-ip',
      dest='ASSIGN_PUBLIC_IP', action="store_true", default=False,
-     help='If assign public ip for servers')
+     help='If assign public ip for instances')
 @arg('--path-cloud-init-script', type=str, metavar='PATH_CLOUD_INIT_SCRIPT',
      dest='PATH_CLOUD_INIT_SCRIPT',
      help='Path to cloud init script')
 @arg('--name-prefix', type=str, metavar='NAME_PREFIX',
-     dest='NAME_PREFIX', default="server-",
-          help='The name prefix for servers')
+     dest='NAME_PREFIX', default="instance-",
+          help='The name prefix for instances')
 @arg('--image-name', type=str, metavar='IMAGE_NAME',
      dest='IMAGE_NAME', default="ubuntu-16.04-x86_64",
-          help='Image name use to boot servers.')
+          help='Image name use to boot instances.')
 @arg('--flavor-name', type=str, metavar='FLAVOR_NAME',
      dest='FLAVOR_NAME', default="c1.c1r1",
-          help='Flavor name use to boot servers.')
+          help='Flavor name use to boot instances.')
 @arg('--network-name', type=str, metavar='NETWORK_NAME',
      dest='NETWORK_NAME', default="private-net",
-          help='Network name use to boot servers.')
+          help='Network name use to boot instances.')
 @arg('--keypair-name', type=str, metavar='KEYPAIR_NAME',
      dest='KEYPAIR_NAME',required=True,
-     help='The name of keypair to be injected into server')
+     help='The name of keypair to be injected into instance')
 def do_create(shell, args):
-    """ Boot servers with anti-affinity policy
+    """ Boot instances with anti-affinity policy
     """
-    LOG.info("Start to create %d servers across all regions..." %
+    LOG.info("Start to create %d instances across all regions" %
              args.INSTANCES_COUNT);
-    servers = []
+    instances = []
     for i in range(args.INSTANCES_COUNT):
         for region in REGIONS:
             group = _find_server_group(shell, region, args)
@@ -297,7 +297,7 @@ def do_create(shell, args):
             
             try:
                 server = _create_server(shell,
-                                        args.NAME_PREFIX + str(uuid.uuid4()),
+                                        args.NAME_PREFIX + str(i),
                                         args.IMAGE_NAME,
                                         args.FLAVOR_NAME,
                                         args.NETWORK_NAME,
@@ -309,7 +309,7 @@ def do_create(shell, args):
                 if resp["active"]:
                     # If the server is created successfully, then try to
                     # create another one
-                    LOG.info("Create server %s successfully on regions %s" %
+                    LOG.info("Create %s successfully on regions %s" %
                              (server.name, region))
                     # Assign floating ip if it's active
                     if args.ASSIGN_PUBLIC_IP:
@@ -327,7 +327,7 @@ def do_create(shell, args):
                                     instance_id=server.id,
                                     instance_name=server.name,
                                     networks=server.networks)
-                    servers.append(inst)
+                    instances.append(inst)
                     break
                 elif "No valid host" in resp["fault"]["message"]:
                     # If the server is failed then try to create it in
@@ -341,7 +341,8 @@ def do_create(shell, args):
             except Exception as e:
                 LOG.error(e)
 
-    print_list(servers, ["region_name", "instance_id",
+    LOG.info("Job finished. Instances have been created as below:")
+    print_list(instances, ["region_name", "instance_id",
                          "instance_name", "networks"])
 
 
@@ -371,7 +372,7 @@ def _find_server_group(shell, region_name, args):
                                                     'anti-affinity')
             region_groups[region] = {"group": group, "is_full": False}
         
-        LOG.info("Created new server groups %s" % str(region_groups))
+        LOG.info("Created new server groups %s for all regions" % group_name)
         SERVER_GROUP_LIST.append(region_groups)
 
     return SERVER_GROUP_LIST[-1][region_name]
